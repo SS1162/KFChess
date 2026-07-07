@@ -1,7 +1,42 @@
 import logging
-from typing import List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+_Factory = Callable[[List[str]], Any]
+
+
+class CommandParser:
+    """Registry-based parser: maps command keywords to factory callables.
+
+    Register a keyword with a factory that receives the full split parts list
+    and returns a Command object. Raises ValueError / IndexError on bad input,
+    which are caught here and logged as warnings.
+
+    Example::
+        cp = CommandParser()
+        cp.register("click", lambda p: ClickCommand(int(p[1]), int(p[2])))
+    """
+
+    def __init__(self) -> None:
+        self._parsers: Dict[str, _Factory] = {}
+
+    def register(self, keyword: str, factory: _Factory) -> None:
+        self._parsers[keyword] = factory
+
+    def parse(self, line: str) -> Optional[Any]:
+        parts = line.split()
+        if not parts:
+            return None
+        factory = self._parsers.get(parts[0])
+        if factory is None:
+            logger.warning("Unknown command keyword %r — line ignored.", parts[0])
+            return None
+        try:
+            return factory(parts)
+        except (ValueError, IndexError) as exc:
+            logger.warning("Malformed command %r: %s", line, exc)
+            return None
 
 
 class TextBoardParser:
