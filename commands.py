@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 
+from models import Point
 
 @dataclass(frozen=True)
 class ClickCommand:
-    x: int
-    y: int
+    p: Point
 
 
 @dataclass(frozen=True)

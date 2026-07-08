@@ -1,29 +1,16 @@
 import pytest
 
 from board import Board
-from config import PIECE_COOLDOWN_MS
+from constants import TIME_PER_CELL_MS
 from game_state import GameState
+from models import Move
+from movement import MoveContext
 
 
 def _state(token_rows):
     board = Board(rows=len(token_rows), cols=len(token_rows[0]), grid=[list(r) for r in token_rows])
     return GameState(board=board)
 
-
-@pytest.mark.parametrize("clock, expiry, expected", [
-    (0,    None, False),   # no cooldown entry → always available
-    (500,  1000, True),    # clock before expiry → still cooling
-    (1000, 1000, False),   # clock exactly at expiry → expired
-    (1500, 1000, False),   # clock past expiry → available
-])
-def test_is_in_cooldown(clock, expiry, expected):
-    # Arrange
-    state = _state([['wK', '.']])
-    state.clock_ms = clock
-    if expiry is not None:
-        state.cooldowns[(0, 0)] = expiry
-    # Act / Assert
-    assert state.is_in_cooldown(0, 0) == expected
 
 
 def test_advance_clock_increments_clock_ms():
@@ -43,14 +30,88 @@ def test_select_and_deselect_toggle_selection():
     assert state.selection is None
 
 
-def test_apply_move_updates_board_and_stamps_cooldown():
+def test_apply_move_updates_board():
     # Arrange
     state = _state([['wK', '.']])
     # Act
-    state.apply_move(0, 0, 0, 1)
+    state.apply_move(Move(0, 0, 0, 1))
     # Assert — board mutated
     assert state.board.get_token(0, 0) == '.'
     assert state.board.get_token(0, 1) == 'wK'
-    # Assert — cooldown stamped at destination, removed at source
-    assert state.cooldowns.get((0, 1)) == PIECE_COOLDOWN_MS
-    assert (0, 0) not in state.cooldowns
+
+
+# ---------------------------------------------------------------------------
+# schedule_move
+# ---------------------------------------------------------------------------
+
+def test_schedule_move_piece_stays_at_origin():
+    # Arrange
+    state = _state([['wK', '.']])
+    # Act
+    state.schedule_move(MoveContext('K', 'w', 0, 0, 0, 1, state.board))
+    # Assert — board untouched; piece remains visible at origin
+    assert state.board.get_token(0, 0) == 'wK'
+    assert state.board.get_token(0, 1) == '.'
+
+
+def test_schedule_move_ignores_already_in_flight():
+    # Arrange — piece already in-flight to (0, 1)
+    state = _state([['wK', '.', '.']])
+    state.schedule_move(MoveContext('K', 'w', 0, 0, 0, 1, state.board))
+    original_entry = state.in_flight[(0, 0)]
+    # Act — attempt to redirect to (0, 2) while still in-flight
+    state.schedule_move(MoveContext('K', 'w', 0, 0, 0, 2, state.board))
+    # Assert — in_flight entry is unchanged; redirect was silently ignored
+    assert state.in_flight[(0, 0)] == original_entry
+
+
+# ---------------------------------------------------------------------------
+# apply_arrivals
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("clock_ms, origin, dest", [
+    (1 * TIME_PER_CELL_MS - 1, 'wK', '.'),  # just before arrival (1-cell move) → still in-flight
+    (1 * TIME_PER_CELL_MS,     '.',  'wK'), # exactly at arrival → landed
+    (1 * TIME_PER_CELL_MS + 1, '.',  'wK'), # past arrival → landed
+])
+def test_apply_arrivals(clock_ms, origin, dest):
+    # Arrange — 1-cell move: arrival_ms = 1 * TIME_PER_CELL_MS
+    state = _state([['wK', '.']])
+    state.schedule_move(MoveContext('K', 'w', 0, 0, 0, 1, state.board))
+    state.clock_ms = clock_ms
+    # Act
+    state.apply_arrivals()
+    # Assert
+    assert state.board.get_token(0, 0) == origin
+    assert state.board.get_token(0, 1) == dest
+
+
+
+# ---------------------------------------------------------------------------
+# is_in_flight
+# ---------------------------------------------------------------------------
+
+def test_is_in_flight_true_while_moving_false_after_arrival():
+    # Arrange
+    state = _state([['wK', '.']])
+    state.schedule_move(MoveContext('K', 'w', 0, 0, 0, 1, state.board))
+    # Assert — in-flight immediately after scheduling
+    assert state.is_in_flight(0, 0) is True
+    # Act — advance clock past arrival
+    state.clock_ms = 1 * TIME_PER_CELL_MS
+    state.apply_arrivals()
+    # Assert — no longer in-flight once landed
+    assert state.is_in_flight(0, 0) is False
+
+
+# ---------------------------------------------------------------------------
+# is_destination_reserved
+# ---------------------------------------------------------------------------
+
+def test_is_destination_reserved_blocks_second_piece():
+    # Arrange — first piece already heading to (0, 2) (2-cell move)
+    state = _state([['wK', 'wR', '.']])
+    state.schedule_move(MoveContext('K', 'w', 0, 0, 0, 2, state.board))
+    # Act / Assert — (0, 2) is reserved, (0, 1) is not
+    assert state.is_destination_reserved(0, 2) is True
+    assert state.is_destination_reserved(0, 1) is False

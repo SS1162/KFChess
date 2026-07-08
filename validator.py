@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-from config import ALLOWED_TOKENS
+from constants import ALLOWED_TOKENS
 from exceptions import EmptyBoardError, IllegalTokenError, InvalidDimensionsError
 
 logger = logging.getLogger(__name__)
