@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from exceptions import CommandError
+
 logger = logging.getLogger(__name__)
 
 _Factory = Callable[[List[str]], Any]
@@ -10,8 +12,9 @@ class CommandParser:
     """Registry-based parser: maps command keywords to factory callables.
 
     Register a keyword with a factory that receives the full split parts list
-    and returns a Command object. Raises ValueError / IndexError on bad input,
-    which are caught here and logged as warnings.
+    and returns a Command object. Factories should raise a CommandError subclass
+    (InvalidCommandArgumentError, UnknownCommandTargetError, …) or IndexError
+    on bad input; both are caught here and logged as warnings.
 
     Example::
         cp = CommandParser()
@@ -34,7 +37,7 @@ class CommandParser:
             return None
         try:
             return factory(parts)
-        except (ValueError, IndexError) as exc:
+        except (CommandError, IndexError) as exc:
             logger.warning("Malformed command %r: %s", line, exc)
             return None
 

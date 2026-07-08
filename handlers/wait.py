@@ -2,13 +2,22 @@ import logging
 from typing import List
 
 from commands import WaitCommand
+from exceptions import InvalidCommandArgumentError
 from game_state import GameState
 
 logger = logging.getLogger(__name__)
 
 
 def parse_wait(parts: List[str]) -> WaitCommand:
-    return WaitCommand(ms=int(parts[1]))
+    ms = int(parts[1])
+    if ms < 0:
+        raise InvalidCommandArgumentError(
+            command='wait',
+            argument='ms',
+            value=ms,
+            reason='duration must be a non-negative integer',
+        )
+    return WaitCommand(ms=ms)
 
 
 def handle_wait(cmd: WaitCommand, state: GameState) -> None:
