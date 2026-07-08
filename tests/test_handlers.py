@@ -7,7 +7,7 @@ from game_state import GameState
 from handlers.click import ClickCommandHandler, parse_click
 from handlers.print_board import parse_print
 from handlers.wait import handle_wait, parse_wait
-from movement import MoveValidator, king_can_move
+from movement import MoveValidator, king_can_move, pawn_can_move
 
 
 def _state(token_rows):
@@ -16,9 +16,10 @@ def _state(token_rows):
 
 
 def _handler():
-    """ClickCommandHandler wired with a King validator (sufficient for all handler tests)."""
+    """ClickCommandHandler wired with King and Pawn validators."""
     mv = MoveValidator()
     mv.register('K', king_can_move)
+    mv.register('P', pawn_can_move)
     return ClickCommandHandler(mv)
 
 

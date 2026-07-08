@@ -34,41 +34,63 @@ def _path_clear(fr: int, fc: int, tr: int, tc: int, board: Board) -> bool:
 
 # ---------------------------------------------------------------------------
 # Per-piece move validators
-# Signature: (fr, fc, tr, tc, board, color) -> bool
-# color is unused by K/Q/R/B/N but present for Pawn compatibility later.
+# Unified signature: (piece_type, color, fr, fc, tr, tc, board) -> bool
+# piece_type and color are unused by K/Q/R/B/N but required for interface
+# consistency so all validators can be registered without wrappers.
 # ---------------------------------------------------------------------------
 
-def king_can_move(fr: int, fc: int, tr: int, tc: int, board: Board, color: str) -> bool:
+def king_can_move(piece_type: str, color: str, fr: int, fc: int, tr: int, tc: int, board: Board) -> bool:
     return max(abs(tr - fr), abs(tc - fc)) == 1
 
 
-def rook_can_move(fr: int, fc: int, tr: int, tc: int, board: Board, color: str) -> bool:
+def rook_can_move(piece_type: str, color: str, fr: int, fc: int, tr: int, tc: int, board: Board) -> bool:
     if fr != tr and fc != tc:
         return False
     return _path_clear(fr, fc, tr, tc, board)
 
 
-def bishop_can_move(fr: int, fc: int, tr: int, tc: int, board: Board, color: str) -> bool:
+def bishop_can_move(piece_type: str, color: str, fr: int, fc: int, tr: int, tc: int, board: Board) -> bool:
     dr, dc = abs(tr - fr), abs(tc - fc)
     if dr == 0 or dr != dc:
         return False
     return _path_clear(fr, fc, tr, tc, board)
 
 
-def queen_can_move(fr: int, fc: int, tr: int, tc: int, board: Board, color: str) -> bool:
-    return (rook_can_move(fr, fc, tr, tc, board, color)
-            or bishop_can_move(fr, fc, tr, tc, board, color))
+def queen_can_move(piece_type: str, color: str, fr: int, fc: int, tr: int, tc: int, board: Board) -> bool:
+    return (rook_can_move(piece_type, color, fr, fc, tr, tc, board)
+            or bishop_can_move(piece_type, color, fr, fc, tr, tc, board))
 
 
-def knight_can_move(fr: int, fc: int, tr: int, tc: int, board: Board, color: str) -> bool:
+def knight_can_move(piece_type: str, color: str, fr: int, fc: int, tr: int, tc: int, board: Board) -> bool:
     return sorted([abs(tr - fr), abs(tc - fc)]) == [1, 2]
+
+
+def pawn_can_move(piece_type: str, color: str, fr: int, fc: int, tr: int, tc: int, board: Board) -> bool:
+    """Pawn movement: forward-only advance to empty square, diagonal-only capture to occupied square.
+
+    White moves toward row 0 (direction -1); black moves toward the last row (direction +1).
+    The friendly-fire guard in ClickCommandHandler ensures the validator is only
+    called when the destination is empty or an enemy, so the diagonal check only
+    needs to confirm the square is not empty.
+    """
+    direction = -1 if color == 'w' else 1
+    dr = tr - fr
+    dc = abs(tc - fc)
+
+    if dr == direction and dc == 0:
+        return board.get_token(tr, tc) == '.'          # forward: must be empty
+
+    if dr == direction and dc == 1:
+        return board.get_token(tr, tc) != '.'          # diagonal: must be occupied (enemy)
+
+    return False
 
 
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
-_ValidatorFn = Callable[[int, int, int, int, Board, str], bool]
+_ValidatorFn = Callable[[str, str, int, int, int, int, Board], bool]
 
 
 class MoveValidator:
@@ -94,4 +116,4 @@ class MoveValidator:
         fn = self._validators.get(piece_type)
         if fn is None:
             return False
-        return fn(fr, fc, tr, tc, board, color)
+        return fn(piece_type, color, fr, fc, tr, tc, board)

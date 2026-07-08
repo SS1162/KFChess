@@ -11,7 +11,8 @@ from handlers.click import ClickCommandHandler, parse_click
 from handlers.print_board import handle_print_board, parse_print
 from handlers.wait import handle_wait, parse_wait
 from movement import (MoveValidator, bishop_can_move, king_can_move,
-                      knight_can_move, queen_can_move, rook_can_move)
+                      knight_can_move, pawn_can_move, queen_can_move,
+                      rook_can_move)
 from parser import CommandParser, TextBoardParser
 from validator import BoardValidator
 
@@ -32,6 +33,7 @@ def _build_move_validator() -> MoveValidator:
     mv.register('R', rook_can_move)
     mv.register('B', bishop_can_move)
     mv.register('N', knight_can_move)
+    mv.register('P', pawn_can_move)
     return mv
 
 
