@@ -38,6 +38,7 @@ class GameState:
     def is_destination_reserved(self, to_row: int, to_col: int) -> bool:
         """Return True if any currently in-flight piece is already heading to (to_row, to_col)."""
         return any(tr == to_row and tc == to_col for tr, tc, _ in self.in_flight.values())
+        
 
     def schedule_move(self, ctx: MoveContext) -> None:
         """Register a move as in-flight. Travel time scales with Chebyshev distance so
