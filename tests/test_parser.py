@@ -20,3 +20,9 @@ def test_missing_commands_header_returns_empty_list():
     src = "Board:\nwK .\n. bK\n"
     _, commands = TextBoardParser().parse(StringIO(src))
     assert commands == []
+
+
+def test_indented_board_header_is_recognised():
+    src = " Board:\nwK .\nCommands:\n"
+    grid, _ = TextBoardParser().parse(StringIO(src))
+    assert grid == [['wK', '.']]
