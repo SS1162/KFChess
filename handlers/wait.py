@@ -9,7 +9,15 @@ logger = logging.getLogger(__name__)
 
 
 def parse_wait(parts: List[str]) -> WaitCommand:
-    ms = int(parts[1])
+    try:
+        ms = int(parts[1])
+    except (IndexError, ValueError):
+        raise InvalidCommandArgumentError(
+            command='wait',
+            argument='ms',
+            value=parts[1] if len(parts) > 1 else '<missing>',
+            reason='must be a non-negative integer',
+        )
     if ms < 0:
         raise InvalidCommandArgumentError(
             command='wait',
@@ -21,5 +29,5 @@ def parse_wait(parts: List[str]) -> WaitCommand:
 
 
 def handle_wait(cmd: WaitCommand, state: GameState) -> None:
-    state.clock_ms += cmd.ms
+    state.advance_clock(cmd.ms)
     logger.info("Clock advanced by %d ms → now at %d ms.", cmd.ms, state.clock_ms)

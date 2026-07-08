@@ -1,3 +1,4 @@
+# Repository: https://github.com/SS1162/KFChess
 import logging
 import sys
 
@@ -15,7 +16,8 @@ from validator import BoardValidator
 logging.basicConfig(
     level=logging.WARNING,
     format="%(levelname)s [%(name)s] %(message)s",
-    stream=sys.stderr,
+    filename="kfchess.log",
+    filemode="w",
 )
 
 logger = logging.getLogger(__name__)
