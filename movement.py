@@ -26,7 +26,7 @@ def _sign(n: int) -> int:
     return 0
 
 
-def _path_clear(ctx: MoveContext) -> bool:
+def path_clear(ctx: MoveContext) -> bool:
     """Return True if every cell *between* ctx.fr,ctx.fc and ctx.tr,ctx.tc is empty.
 
     Steps one cell at a time in the direction of travel.
@@ -57,14 +57,14 @@ def king_can_move(ctx: MoveContext) -> bool:
 def rook_can_move(ctx: MoveContext) -> bool:
     if ctx.fr != ctx.tr and ctx.fc != ctx.tc:
         return False
-    return _path_clear(ctx)
+    return path_clear(ctx)
 
 
 def bishop_can_move(ctx: MoveContext) -> bool:
     dr, dc = abs(ctx.tr - ctx.fr), abs(ctx.tc - ctx.fc)
     if dr == 0 or dr != dc:
         return False
-    return _path_clear(ctx)
+    return path_clear(ctx)
 
 
 def queen_can_move(ctx: MoveContext) -> bool:
