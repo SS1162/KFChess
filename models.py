@@ -6,6 +6,11 @@ class Point:
     y: int
 
 @dataclass(frozen=True)
+class BoardPosition:
+    row: int
+    col: int
+
+@dataclass(frozen=True)
 class Move:
     fr: int
     fc: int

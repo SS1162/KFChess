@@ -4,7 +4,7 @@ from typing import Dict, Optional, Tuple
 
 from board import Board
 from constants import TIME_PER_CELL_MS
-from models import Move
+from models import BoardPosition, Move
 from movement import MoveContext, path_clear
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ class GameState:
     """Mutable engine state: board position, virtual clock, selection, piece cooldowns, and in-flight moves."""
     board: Board
     clock_ms: int = 0
-    selection: Optional[Tuple[int, int]] = None
+    selection: Optional[BoardPosition] = None
     # Maps (from_row, from_col) -> (to_row, to_col, arrival_ms)
     in_flight: Dict[Tuple[int, int], Tuple[int, int, int]] = field(default_factory=dict)
 
@@ -23,21 +23,21 @@ class GameState:
         """Advance the virtual game clock by the given number of milliseconds."""
         self.clock_ms += ms
 
-    def select(self, row: int, col: int) -> None:
-        """Set the active selection to the piece at (row, col)."""
-        self.selection = (row, col)
+    def select(self, pos: BoardPosition) -> None:
+        """Set the active selection to the piece at pos."""
+        self.selection = pos
 
     def deselect(self) -> None:
         """Clear the active selection."""
         self.selection = None
 
-    def is_in_flight(self, row: int, col: int) -> bool:
-        """Return True if the piece at (row, col) is currently in-flight."""
-        return (row, col) in self.in_flight
+    def is_in_flight(self, pos: BoardPosition) -> bool:
+        """Return True if the piece at pos is currently in-flight."""
+        return (pos.row, pos.col) in self.in_flight
 
-    def is_destination_reserved(self, to_row: int, to_col: int) -> bool:
-        """Return True if any currently in-flight piece is already heading to (to_row, to_col)."""
-        return any(tr == to_row and tc == to_col for tr, tc, _ in self.in_flight.values())
+    def is_destination_reserved(self, pos: BoardPosition) -> bool:
+        """Return True if any currently in-flight piece is already heading to pos."""
+        return any(tr == pos.row and tc == pos.col for tr, tc, _ in self.in_flight.values())
 
     def schedule_move(self, ctx: MoveContext) -> None:
         """Register a move as in-flight. Travel time scales with Chebyshev distance so
@@ -47,7 +47,7 @@ class GameState:
         If the piece at (ctx.fr, ctx.fc) is already in-flight, the request is
         silently ignored — no state is mutated.
         """
-        if self.is_in_flight(ctx.fr, ctx.fc):
+        if self.is_in_flight(BoardPosition(ctx.fr, ctx.fc)):
             logger.warning(
                 "Piece at (%d,%d) is already in-flight — schedule_move ignored.",
                 ctx.fr, ctx.fc,
@@ -74,38 +74,47 @@ class GameState:
             self.in_flight.pop((fr, fc))
             logger.info("In-flight piece at (%d,%d) cancelled — path now blocked.", fr, fc)
 
-    def apply_arrivals(self) -> None:
-        """Commit every in-flight move whose arrival_ms <= clock_ms to the board.
-
-        Arrivals are sorted earliest-first so the piece scheduled first wins collisions.
-        After each landing:
-          - Step C: cancel any in-flight piece whose origin equals the landing destination
-            (it was captured at its source).
-          - Step D: cancel any remaining in-flight piece whose path is now blocked.
-        """
-        arrived = sorted(
+    def _get_due_arrivals(self) -> list:
+        """Return in-flight origins sorted earliest-first whose arrival_ms <= clock_ms."""
+        return sorted(
             [(fr, fc) for (fr, fc), (_, _, arrival_ms) in self.in_flight.items()
              if self.clock_ms >= arrival_ms],
             key=lambda pos: self.in_flight[pos][2],
         )
-        for fr, fc in arrived:
+
+    def _cancel_captured_at_destination(self, to_row: int, to_col: int) -> None:
+        """Step C: cancel all in-flight pieces invalidated by a piece landing on (to_row, to_col).
+
+        Cancels:
+        - a piece whose origin key is (to_row, to_col) — captured while waiting to depart.
+        - any piece heading *toward* (to_row, to_col) — destination now occupied.
+        """
+        if (to_row, to_col) in self.in_flight:
+            self.in_flight.pop((to_row, to_col))
+            logger.info("In-flight piece at (%d,%d) cancelled — captured at its origin.", to_row, to_col)
+
+        heading_there = [
+            (fr, fc) for (fr, fc), (tr, tc, _) in self.in_flight.items()
+            if tr == to_row and tc == to_col
+        ]
+        for fr, fc in heading_there:
+            self.in_flight.pop((fr, fc))
+            logger.info("In-flight piece at (%d,%d) cancelled — destination (%d,%d) now occupied.", fr, fc, to_row, to_col)
+
+    def _land_piece(self, fr: int, fc: int, to_row: int, to_col: int) -> None:
+        """Commit a single arrived piece to the board, then run step C and D."""
+        self.board.apply_move(Move(fr, fc, to_row, to_col))
+        logger.info("Piece arrived (%d,%d)\u2192(%d,%d).", fr, fc, to_row, to_col)
+        self._cancel_captured_at_destination(to_row, to_col)  # step C
+        self._cancel_blocked()                                  # step D
+
+    def apply_arrivals(self) -> None:
+        """Commit every due in-flight move to the board, earliest-first."""
+        for fr, fc in self._get_due_arrivals():
             if (fr, fc) not in self.in_flight:
-                continue  # already cancelled by a previous arrival this tick
+                continue  # cancelled by a previous arrival this tick
             to_row, to_col, _ = self.in_flight.pop((fr, fc))
-            self.board.apply_move(Move(fr, fc, to_row, to_col))
-            logger.info(
-                "Piece arrived (%d,%d)\u2192(%d,%d); ready to move immediately.",
-                fr, fc, to_row, to_col,
-            )
-            # Step C: origin cancellation — piece at landing destination was captured
-            if (to_row, to_col) in self.in_flight:
-                self.in_flight.pop((to_row, to_col))
-                logger.info(
-                    "In-flight piece at (%d,%d) cancelled — captured at its origin.",
-                    to_row, to_col,
-                )
-            # Step D: dynamic path blocking
-            self._cancel_blocked()
+            self._land_piece(fr, fc, to_row, to_col)
 
     def apply_move(self, move: Move) -> None:
         """Instantly moves a piece, captures any occupant."""

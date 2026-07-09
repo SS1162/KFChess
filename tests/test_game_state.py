@@ -3,7 +3,7 @@ import pytest
 from board import Board
 from constants import TIME_PER_CELL_MS
 from game_state import GameState
-from models import Move
+from models import BoardPosition, Move
 from movement import MoveContext
 
 
@@ -23,8 +23,8 @@ def test_select_and_deselect_toggle_selection():
     # Arrange
     state = _state([['wK', '.']])
     # Act / Assert — select
-    state.select(0, 0)
-    assert state.selection == (0, 0)
+    state.select(BoardPosition(0, 0))
+    assert state.selection == BoardPosition(0, 0)
     # Act / Assert — deselect
     state.deselect()
     assert state.selection is None
@@ -96,12 +96,12 @@ def test_is_in_flight_true_while_moving_false_after_arrival():
     state = _state([['wK', '.']])
     state.schedule_move(MoveContext('K', 'w', 0, 0, 0, 1, state.board))
     # Assert — in-flight immediately after scheduling
-    assert state.is_in_flight(0, 0) is True
+    assert state.is_in_flight(BoardPosition(0, 0)) is True
     # Act — advance clock past arrival
     state.clock_ms = 1 * TIME_PER_CELL_MS
     state.apply_arrivals()
     # Assert — no longer in-flight once landed
-    assert state.is_in_flight(0, 0) is False
+    assert state.is_in_flight(BoardPosition(0, 0)) is False
 
 
 # ---------------------------------------------------------------------------
@@ -113,5 +113,5 @@ def test_is_destination_reserved_blocks_second_piece():
     state = _state([['wK', 'wR', '.']])
     state.schedule_move(MoveContext('K', 'w', 0, 0, 0, 2, state.board))
     # Act / Assert — (0, 2) is reserved, (0, 1) is not
-    assert state.is_destination_reserved(0, 2) is True
-    assert state.is_destination_reserved(0, 1) is False
+    assert state.is_destination_reserved(BoardPosition(0, 2)) is True
+    assert state.is_destination_reserved(BoardPosition(0, 1)) is False
