@@ -135,6 +135,10 @@ def test_knight_jumps_over_pieces():
     ('b', 0, 0, 1, 0, [['bP', '.'], ['.',  '.']]),
     # black diagonal capture to occupied square
     ('b', 0, 0, 1, 1, [['bP', '.'], ['.',  'wQ']]),
+    # white two-step from start row (clear path)
+    ('w', 7, 0, 5, 0, [['.']*1]*8),
+    # black two-step from start row (clear path)
+    ('b', 0, 0, 2, 0, [['.']*1]*8),
 ])
 def test_pawn_legal_moves(color, fr, fc, tr, tc, token_rows):
     board = _board(token_rows)
@@ -148,8 +152,10 @@ def test_pawn_legal_moves(color, fr, fc, tr, tc, token_rows):
     ('w', 1, 0, 0, 1, [['.',  '.'], ['wP', '.']]),
     # backward move
     ('w', 0, 0, 1, 0, [['wP', '.'], ['.',  '.']]),
-    # two-step advance
-    ('w', 2, 0, 0, 0, [['.',  '.'], ['.', '.'], ['wP', '.']]),
+    # two-step from non-start row
+    ('w', 3, 0, 1, 0, [['.']*1]*8),
+    # two-step blocked by intermediate piece
+    ('w', 7, 0, 5, 0, [['.'], ['.'], ['.'], ['.'], ['.'], ['.'], ['bP'], ['.']]),
     # black moving in wrong direction
     ('b', 1, 0, 0, 0, [['.',  '.'], ['bP', '.']]),
 ])

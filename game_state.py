@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
 from board import Board
-from constants import TIME_PER_CELL_MS
+from constants import TIME_PER_CELL_MS, PAWN_PROMOTION_PIECE
 from game_status import GameOverRegistry, GameStatus, default_registry
 from models import BoardPosition, Move
 from movement import MoveContext, path_clear
@@ -107,11 +107,22 @@ class GameState:
             self.in_flight.pop((fr, fc))
             logger.info("In-flight piece at (%d,%d) cancelled — destination (%d,%d) now occupied.", fr, fc, to_row, to_col)
 
+    def _try_promote_pawn(self, row: int, col: int) -> None:
+        """Promote the pawn at (row, col) if it has reached its last row."""
+        token = self.board.get_token(row, col)
+        if token[1] != 'P':
+            return
+        promotion_row = 0 if token[0] == 'w' else self.board.rows - 1
+        if row == promotion_row:
+            self.board.set_token(row, col, token[0] + PAWN_PROMOTION_PIECE)
+            logger.info("Pawn at (%d,%d) promoted to %s.", row, col, PAWN_PROMOTION_PIECE)
+
     def _land_piece(self, fr: int, fc: int, to_row: int, to_col: int) -> None:
         """Commit a single arrived piece to the board, then run step C and D."""
         captured_token = self.board.get_token(to_row, to_col)
         self.board.apply_move(Move(fr, fc, to_row, to_col))
         logger.info("Piece arrived (%d,%d)\u2192(%d,%d).", fr, fc, to_row, to_col)
+        self._try_promote_pawn(to_row, to_col)
         result = self.game_over_registry.resolve(captured_token)
         if result is not None:
             self.status = result

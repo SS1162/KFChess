@@ -2,6 +2,7 @@ from typing import Callable, Dict
 from dataclasses import dataclass
 
 from board import Board
+from constants import PAWN_DOUBLE_STEP_ROWS
 
 @dataclass(frozen=True)
 class MoveContext:
@@ -93,6 +94,12 @@ def pawn_can_move(ctx: MoveContext) -> bool:
 
     if dr == direction and dc == 1:
         return ctx.board.get_token(ctx.tr, ctx.tc) != '.'          # diagonal: must be occupied (enemy)
+
+    if dr == 2 * direction and dc == 0:
+        start_row = ctx.board.rows - PAWN_DOUBLE_STEP_ROWS if ctx.color == 'w' else PAWN_DOUBLE_STEP_ROWS - 1
+        return (ctx.fr == start_row
+                and ctx.board.get_token(ctx.tr, ctx.tc) == '.'
+                and path_clear(ctx))
 
     return False
 
