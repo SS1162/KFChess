@@ -50,7 +50,7 @@ class ClickCommandHandler:
     def _handle_selection(self, pos: BoardPosition, state: GameState) -> None:
         sel = state.selection
         if pos == sel:
-            state.deselect()
+            self._handle_double_click(pos, state)
             return
         sel_token = state.board.get_token(sel.row, sel.col)
         token = state.board.get_token(pos.row, pos.col)
@@ -58,6 +58,15 @@ class ClickCommandHandler:
             state.select(pos)
             return
         self._try_move(pos, sel, sel_token, state)
+
+    def _handle_double_click(self, pos: BoardPosition, state: GameState) -> None:
+        """Second click on the already-selected piece: attempt a jump, then deselect."""
+        if (not state.is_in_flight(pos)
+                and not state.is_airborne(pos)
+                and state.board.get_token(pos.row, pos.col) != '.'):
+            state.schedule_jump(pos.row, pos.col)
+            logger.info("Jump triggered at (%d,%d).", pos.row, pos.col)
+        state.deselect()
 
     def _try_move(self, pos: BoardPosition, sel: BoardPosition, sel_token: str, state: GameState) -> None:
         ctx = MoveContext(sel_token[1], sel_token[0], sel.row, sel.col, pos.row, pos.col, state.board)

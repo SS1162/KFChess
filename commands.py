@@ -15,3 +15,8 @@ class WaitCommand:
 @dataclass(frozen=True)
 class PrintBoardCommand:
     pass
+
+
+@dataclass(frozen=True)
+class JumpCommand:
+    p: Point

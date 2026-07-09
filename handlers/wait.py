@@ -31,4 +31,5 @@ def parse_wait(parts: List[str]) -> WaitCommand:
 def handle_wait(cmd: WaitCommand, state: GameState) -> None:
     state.advance_clock(cmd.ms)
     state.apply_arrivals()
+    state.apply_landings()
     logger.info("Clock advanced by %d ms → now at %d ms.", cmd.ms, state.clock_ms)

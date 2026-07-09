@@ -4,10 +4,11 @@ import sys
 
 from board import Board
 from command_executor import CommandExecutor
-from commands import ClickCommand, PrintBoardCommand, WaitCommand
+from commands import ClickCommand, JumpCommand, PrintBoardCommand, WaitCommand
 from exceptions import BoardError
 from game_state import GameState
 from handlers.click import ClickCommandHandler, parse_click
+from handlers.jump import handle_jump, parse_jump
 from handlers.print_board import handle_print_board, parse_print
 from handlers.wait import handle_wait, parse_wait
 from movement import (MoveValidator, bishop_can_move, king_can_move,
@@ -40,6 +41,7 @@ def _build_move_validator() -> MoveValidator:
 def _build_command_parser() -> CommandParser:
     cp = CommandParser()
     cp.register("click", parse_click)
+    cp.register("jump",  parse_jump)
     cp.register("wait",  parse_wait)
     cp.register("print", parse_print)
     return cp
@@ -50,8 +52,9 @@ def _build_executor() -> CommandExecutor:
     click_handler  = ClickCommandHandler(move_validator)
     ex = CommandExecutor()
     ex.register(ClickCommand,      click_handler.execute)
-    ex.register(WaitCommand,       handle_wait)
-    ex.register(PrintBoardCommand, handle_print_board)
+    ex.register(JumpCommand,        handle_jump)
+    ex.register(WaitCommand,        handle_wait)
+    ex.register(PrintBoardCommand,  handle_print_board)
     return ex
 
 

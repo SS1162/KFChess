@@ -2,7 +2,7 @@ import pytest
 
 from board import Board
 from commands import PrintBoardCommand, WaitCommand
-from constants import TIME_PER_CELL_MS
+from constants import JUMP_DURATION_MS, TIME_PER_CELL_MS
 from exceptions import InvalidCommandArgumentError, UnknownCommandTargetError
 from game_state import GameState
 from game_status import GameStatus
@@ -75,6 +75,13 @@ def test_handle_wait_advances_clock():
     assert state.clock_ms == 500
 
 
+def test_handle_wait_calls_apply_landings():
+    state = _state([['wK', '.']])
+    state.schedule_jump(0, 0)
+    handle_wait(WaitCommand(ms=JUMP_DURATION_MS), state)
+    assert state.is_airborne(BoardPosition(0, 0)) is False
+
+
 # ---------------------------------------------------------------------------
 # handle_click — selection mechanics
 # ---------------------------------------------------------------------------
@@ -112,20 +119,14 @@ def test_click_friendly_replaces_selection():
     assert state.selection == BoardPosition(0, 1)
 
 
-
-
-
 # ---------------------------------------------------------------------------
-# handle_click — move scheduling (moves are now deferred, not instant)
+# handle_click — move scheduling
 # ---------------------------------------------------------------------------
 
 def test_move_to_empty_cell_schedules_in_flight():
-    # Arrange
     state = _state([['wK', '.']])
     state.select(BoardPosition(0, 0))
-    # Act
     _handler().execute(parse_click(["click", "150", "50"]), state)
-    # Assert — piece in-flight: board unchanged, selection cleared
     assert state.board.get_token(0, 0) == 'wK'
     assert state.board.get_token(0, 1) == '.'
     assert state.selection is None
@@ -137,26 +138,20 @@ def test_move_to_empty_cell_schedules_in_flight():
 # ---------------------------------------------------------------------------
 
 def test_redirecting_in_flight_piece_is_ignored():
-    # Arrange — schedule a move for the King
     state = _state([['wK', '.', '.']])
     state.select(BoardPosition(0, 0))
     _handler().execute(parse_click(["click", "150", "50"]), state)
-    original_entry = state.in_flight[(0, 0)]
-    # Act — try to redirect the same King while it's still in-flight
+    original_entry = state.in_flight[BoardPosition(0, 0)]
     state.select(BoardPosition(0, 0))
     _handler().execute(parse_click(["click", "250", "50"]), state)
-    # Assert — original in-flight entry is unchanged
-    assert state.in_flight[(0, 0)] == original_entry
+    assert state.in_flight[BoardPosition(0, 0)] == original_entry
 
 
 def test_move_captures_enemy_after_arrival():
-    # Arrange
     state = _state([['wK', 'bQ']])
     state.select(BoardPosition(0, 0))
     _handler().execute(parse_click(["click", "150", "50"]), state)
-    # Act — advance clock to trigger arrival (1-cell move)
     handle_wait(WaitCommand(ms=1 * TIME_PER_CELL_MS), state)
-    # Assert — piece landed, enemy captured
     assert state.board.get_token(0, 1) == 'wK'
     assert state.board.get_token(0, 0) == '.'
 
@@ -166,25 +161,19 @@ def test_move_captures_enemy_after_arrival():
 # ---------------------------------------------------------------------------
 
 def test_move_is_in_flight_before_arrival(capsys):
-    # Arrange — schedule a move
     state = _state([['wK', '.']])
     state.select(BoardPosition(0, 0))
     _handler().execute(parse_click(["click", "150", "50"]), state)
-    # Act — print board before any wait
     handle_print_board(PrintBoardCommand(), state)
-    # Assert — piece still at origin
     assert capsys.readouterr().out.split()[0] == 'wK'
 
 
 def test_move_arrives_after_wait(capsys):
-    # Arrange — schedule a move
     state = _state([['wK', '.']])
     state.select(BoardPosition(0, 0))
     _handler().execute(parse_click(["click", "150", "50"]), state)
-    # Act — advance clock past arrival (1-cell move), then print
     handle_wait(WaitCommand(ms=1 * TIME_PER_CELL_MS), state)
     handle_print_board(PrintBoardCommand(), state)
-    # Assert — piece at destination
     tokens = capsys.readouterr().out.split()
     assert tokens == ['.', 'wK']
 
@@ -194,17 +183,89 @@ def test_move_arrives_after_wait(capsys):
 # ---------------------------------------------------------------------------
 
 def test_click_move_ignored_after_game_over():
-    # Arrange — white rook captures black king, triggering game over
     state = _state([['wR', 'bK', '.']])
     mv = MoveValidator()
-    mv.register('R', lambda ctx: ctx.fr == ctx.tr)  # simple rook: same row
+    mv.register('R', lambda ctx: ctx.fr == ctx.tr)
     handler = ClickCommandHandler(mv)
     state.select(BoardPosition(0, 0))
     handler.execute(parse_click(["click", "150", "50"]), state)
     handle_wait(WaitCommand(ms=1 * TIME_PER_CELL_MS), state)
     assert state.status == GameStatus.WHITE_WON
-    # Act — attempt another move after game over
     state.select(BoardPosition(0, 1))
     handler.execute(parse_click(["click", "250", "50"]), state)
-    # Assert — no new in-flight move was scheduled
     assert state.in_flight == {}
+
+
+# ---------------------------------------------------------------------------
+# Jump via double-click
+# ---------------------------------------------------------------------------
+
+def test_double_click_triggers_jump():
+    # First click selects, second click on same cell triggers jump
+    state = _state([['wK', '.']])
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # select
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # jump
+    assert state.is_airborne(BoardPosition(0, 0)) is True
+    assert state.selection is None
+
+
+def test_double_click_deselects_after_jump():
+    state = _state([['wK', '.']])
+    _handler().execute(parse_click(["click", "50", "50"]), state)
+    _handler().execute(parse_click(["click", "50", "50"]), state)
+    assert state.selection is None
+
+
+def test_double_click_on_in_flight_piece_does_not_jump():
+    state = _state([['wK', '.']])
+    state.select(BoardPosition(0, 0))
+    _handler().execute(parse_click(["click", "150", "50"]), state)  # schedule move
+    assert state.is_in_flight(BoardPosition(0, 0)) is True
+    state.select(BoardPosition(0, 0))
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # double-click while in-flight
+    assert state.is_airborne(BoardPosition(0, 0)) is False
+
+
+def test_double_click_on_already_airborne_piece_does_not_re_jump():
+    state = _state([['wK', '.']])
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # select
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # jump
+    original_land_at = state.airborne[BoardPosition(0, 0)]
+    state.advance_clock(100)
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # select again
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # attempt re-jump
+    assert state.airborne[BoardPosition(0, 0)] == original_land_at
+
+
+def test_jump_piece_cannot_move_while_airborne():
+    state = _state([['wK', '.']])
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # select
+    _handler().execute(parse_click(["click", "50", "50"]), state)   # jump
+    assert state.is_airborne(BoardPosition(0, 0)) is True
+    state.select(BoardPosition(0, 0))
+    _handler().execute(parse_click(["click", "150", "50"]), state)  # try to move
+    assert state.in_flight == {}
+
+
+def test_jump_expires_after_wait():
+    state = _state([['wK', '.']])
+    _handler().execute(parse_click(["click", "50", "50"]), state)
+    _handler().execute(parse_click(["click", "50", "50"]), state)
+    assert state.is_airborne(BoardPosition(0, 0)) is True
+    handle_wait(WaitCommand(ms=JUMP_DURATION_MS), state)
+    assert state.is_airborne(BoardPosition(0, 0)) is False
+
+
+def test_jump_ignored_after_game_over():
+    state = _state([['wR', 'bK', '.']])
+    mv = MoveValidator()
+    mv.register('R', lambda ctx: ctx.fr == ctx.tr)
+    handler = ClickCommandHandler(mv)
+    state.select(BoardPosition(0, 0))
+    handler.execute(parse_click(["click", "150", "50"]), state)
+    handle_wait(WaitCommand(ms=TIME_PER_CELL_MS), state)
+    assert state.status == GameStatus.WHITE_WON
+    # Attempt jump after game over
+    handler.execute(parse_click(["click", "50", "50"]), state)   # select wR (now at 0,1)
+    handler.execute(parse_click(["click", "50", "50"]), state)   # double-click
+    assert state.airborne == {}
