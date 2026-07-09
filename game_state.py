@@ -4,6 +4,7 @@ from typing import Dict, Optional, Tuple
 
 from board import Board
 from constants import TIME_PER_CELL_MS
+from game_status import GameOverRegistry, GameStatus, default_registry
 from models import BoardPosition, Move
 from movement import MoveContext, path_clear
 
@@ -18,6 +19,8 @@ class GameState:
     selection: Optional[BoardPosition] = None
     # Maps (from_row, from_col) -> (to_row, to_col, arrival_ms)
     in_flight: Dict[Tuple[int, int], Tuple[int, int, int]] = field(default_factory=dict)
+    status: GameStatus = field(default=GameStatus.PLAYING)
+    game_over_registry: GameOverRegistry = field(default_factory=lambda: default_registry)
 
     def advance_clock(self, ms: int) -> None:
         """Advance the virtual game clock by the given number of milliseconds."""
@@ -44,9 +47,12 @@ class GameState:
         that each cell of travel costs TIME_PER_CELL_MS milliseconds.
         The piece stays at its origin on the board until apply_arrivals() commits it.
 
-        If the piece at (ctx.fr, ctx.fc) is already in-flight, the request is
-        silently ignored — no state is mutated.
+        Ignored if the game is no longer in PLAYING status, or if the piece at
+        (ctx.fr, ctx.fc) is already in-flight.
         """
+        if self.status != GameStatus.PLAYING:
+            logger.info("schedule_move ignored — game is not PLAYING (status=%s).", self.status)
+            return
         if self.is_in_flight(BoardPosition(ctx.fr, ctx.fc)):
             logger.warning(
                 "Piece at (%d,%d) is already in-flight — schedule_move ignored.",
@@ -103,8 +109,13 @@ class GameState:
 
     def _land_piece(self, fr: int, fc: int, to_row: int, to_col: int) -> None:
         """Commit a single arrived piece to the board, then run step C and D."""
+        captured_token = self.board.get_token(to_row, to_col)
         self.board.apply_move(Move(fr, fc, to_row, to_col))
         logger.info("Piece arrived (%d,%d)\u2192(%d,%d).", fr, fc, to_row, to_col)
+        result = self.game_over_registry.resolve(captured_token)
+        if result is not None:
+            self.status = result
+            logger.info("Game over — status set to %s.", self.status)
         self._cancel_captured_at_destination(to_row, to_col)  # step C
         self._cancel_blocked()                                  # step D
 
