@@ -3,6 +3,7 @@ import pytest
 from board import Board
 from constants import TIME_PER_CELL_MS
 from game_state import GameState
+from game_status import GameStatus
 from models import BoardPosition, Move
 from movement import MoveContext
 
@@ -115,3 +116,35 @@ def test_is_destination_reserved_blocks_second_piece():
     # Act / Assert — (0, 2) is reserved, (0, 1) is not
     assert state.is_destination_reserved(BoardPosition(0, 2)) is True
     assert state.is_destination_reserved(BoardPosition(0, 1)) is False
+
+
+# ---------------------------------------------------------------------------
+# game_over via king capture
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("attacker, victim, expected_status", [
+    ('wR', 'bK', GameStatus.WHITE_WON),
+    ('bR', 'wK', GameStatus.BLACK_WON),
+])
+def test_capturing_king_sets_game_status(attacker, victim, expected_status):
+    # Arrange — attacker in-flight toward the enemy king
+    state = _state([[attacker, victim]])
+    state.schedule_move(MoveContext(attacker[1], attacker[0], 0, 0, 0, 1, state.board))
+    # Act — advance clock to trigger arrival
+    state.clock_ms = 1 * TIME_PER_CELL_MS
+    state.apply_arrivals()
+    # Assert
+    assert state.status == expected_status
+
+
+def test_schedule_move_ignored_after_game_over():
+    # Arrange — force game over
+    state = _state([['wR', 'bK', '.']])
+    state.schedule_move(MoveContext('R', 'w', 0, 0, 0, 1, state.board))
+    state.clock_ms = 1 * TIME_PER_CELL_MS
+    state.apply_arrivals()
+    assert state.status == GameStatus.WHITE_WON
+    # Act — attempt to schedule another move
+    state.schedule_move(MoveContext('R', 'w', 0, 1, 0, 2, state.board))
+    # Assert — in_flight remains empty; move was ignored
+    assert state.in_flight == {}

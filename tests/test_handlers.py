@@ -5,6 +5,7 @@ from commands import PrintBoardCommand, WaitCommand
 from constants import TIME_PER_CELL_MS
 from exceptions import InvalidCommandArgumentError, UnknownCommandTargetError
 from game_state import GameState
+from game_status import GameStatus
 from handlers.click import ClickCommandHandler, parse_click
 from handlers.print_board import handle_print_board, parse_print
 from handlers.wait import handle_wait, parse_wait
@@ -186,3 +187,24 @@ def test_move_arrives_after_wait(capsys):
     # Assert — piece at destination
     tokens = capsys.readouterr().out.split()
     assert tokens == ['.', 'wK']
+
+
+# ---------------------------------------------------------------------------
+# game-over guard: click move ignored after game over
+# ---------------------------------------------------------------------------
+
+def test_click_move_ignored_after_game_over():
+    # Arrange — white rook captures black king, triggering game over
+    state = _state([['wR', 'bK', '.']])
+    mv = MoveValidator()
+    mv.register('R', lambda ctx: ctx.fr == ctx.tr)  # simple rook: same row
+    handler = ClickCommandHandler(mv)
+    state.select(BoardPosition(0, 0))
+    handler.execute(parse_click(["click", "150", "50"]), state)
+    handle_wait(WaitCommand(ms=1 * TIME_PER_CELL_MS), state)
+    assert state.status == GameStatus.WHITE_WON
+    # Act — attempt another move after game over
+    state.select(BoardPosition(0, 1))
+    handler.execute(parse_click(["click", "250", "50"]), state)
+    # Assert — no new in-flight move was scheduled
+    assert state.in_flight == {}
