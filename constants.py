@@ -5,4 +5,4 @@ ALLOWED_TOKENS = frozenset(
 )
 
 CELL_SIZE = 100          # pixels per board cell (width and height)
-PIECE_COOLDOWN_MS = 1000 # milliseconds a piece must wait after moving before it can move again
+TIME_PER_CELL_MS  = 1000 # milliseconds of travel time per cell of distance moved

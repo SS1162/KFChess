@@ -2,17 +2,19 @@ import logging
 from typing import List
 
 from commands import ClickCommand
-from config import CELL_SIZE
+from constants import CELL_SIZE
+from coordinate_translator import pixel_to_board
 from exceptions import InvalidCommandArgumentError
 from game_state import GameState
-from movement import MoveValidator
+from models import BoardPosition, Point
+from movement import MoveContext, MoveValidator
 
 logger = logging.getLogger(__name__)
 
 
 def parse_click(parts: List[str]) -> ClickCommand:
     try:
-        return ClickCommand(x=int(parts[1]), y=int(parts[2]))
+        return ClickCommand(p=Point(x=int(parts[1]), y=int(parts[2])))
     except (IndexError, ValueError):
         raise InvalidCommandArgumentError(
             command='click',
@@ -29,45 +31,42 @@ class ClickCommandHandler:
         self._move_validator = move_validator
 
     def execute(self, cmd: ClickCommand, state: GameState) -> None:
-        col = cmd.x // CELL_SIZE
-        row = cmd.y // CELL_SIZE
-
-        if not (0 <= row < state.board.rows and 0 <= col < state.board.cols):
-            logger.warning("Click (%d, %d) is out of bounds — ignored.", cmd.x, cmd.y)
+        pos = pixel_to_board(cmd.p.x, cmd.p.y, CELL_SIZE, state.board.rows, state.board.cols)
+        if pos is None:
+            logger.warning("Click (%d, %d) is out of bounds — ignored.", cmd.p.x, cmd.p.y)
             return
-
-        token = state.board.get_token(row, col)
-
         if state.selection is None:
-            # No active selection: try to select the clicked piece.
-            if token == '.' or state.is_in_cooldown(row, col):
-                return
-            state.select(row, col)
-            logger.info("Selected %r at (%d, %d).", token, row, col)
-
+            self._handle_no_selection(pos, state)
         else:
-            sel_row, sel_col = state.selection
-            sel_token = state.board.get_token(sel_row, sel_col)
+            self._handle_selection(pos, state)
 
-            if (row, col) == (sel_row, sel_col):
-                state.deselect()  # clicking selected piece again → deselect
-                return
+    def _handle_no_selection(self, pos: BoardPosition, state: GameState) -> None:
+        token = state.board.get_token(pos.row, pos.col)
+        if token == '.':
+            return
+        state.select(pos)
+        logger.info("Selected %r at (%d, %d).", token, pos.row, pos.col)
 
-            is_friendly = (token != '.' and token[0] == sel_token[0])
-
-            if is_friendly:
-                if state.is_in_cooldown(row, col):
-                    logger.warning("Friendly piece at (%d, %d) is in cooldown — click ignored.", row, col)
-                    return
-                state.select(row, col)  # replace selection with available friendly
-                return
-
-            # Empty cell or enemy: validate move shape before applying.
-            color      = sel_token[0]
-            piece_type = sel_token[1]
-            if not self._move_validator.is_legal(piece_type, color, sel_row, sel_col, row, col, state.board):
-                state.deselect()
-                return
-
-            state.apply_move(sel_row, sel_col, row, col)
+    def _handle_selection(self, pos: BoardPosition, state: GameState) -> None:
+        sel = state.selection
+        if pos == sel:
             state.deselect()
+            return
+        sel_token = state.board.get_token(sel.row, sel.col)
+        token = state.board.get_token(pos.row, pos.col)
+        if token != '.' and token[0] == sel_token[0]:
+            state.select(pos)
+            return
+        self._try_move(pos, sel, sel_token, state)
+
+    def _try_move(self, pos: BoardPosition, sel: BoardPosition, sel_token: str, state: GameState) -> None:
+        ctx = MoveContext(sel_token[1], sel_token[0], sel.row, sel.col, pos.row, pos.col, state.board)
+        if not self._move_validator.is_legal(ctx):
+            state.deselect()
+            return
+        if state.is_destination_reserved(pos):
+            logger.warning("Destination (%d, %d) already reserved — move ignored.", pos.row, pos.col)
+            state.deselect()
+            return
+        state.schedule_move(ctx)
+        state.deselect()

@@ -2,11 +2,13 @@ import pytest
 
 from board import Board
 from commands import PrintBoardCommand, WaitCommand
+from constants import TIME_PER_CELL_MS
 from exceptions import InvalidCommandArgumentError, UnknownCommandTargetError
 from game_state import GameState
 from handlers.click import ClickCommandHandler, parse_click
-from handlers.print_board import parse_print
+from handlers.print_board import handle_print_board, parse_print
 from handlers.wait import handle_wait, parse_wait
+from models import BoardPosition
 from movement import MoveValidator, king_can_move, pawn_can_move
 
 
@@ -79,7 +81,7 @@ def test_handle_wait_advances_clock():
 def test_click_piece_selects_it():
     state = _state([['wK', '.']])
     _handler().execute(parse_click(["click", "50", "50"]), state)
-    assert state.selection == (0, 0)
+    assert state.selection == BoardPosition(0, 0)
 
 
 def test_click_empty_cell_does_not_select():
@@ -97,41 +99,90 @@ def test_click_out_of_bounds_is_ignored(x, y):
 
 def test_click_selected_piece_again_deselects():
     state = _state([['wK', '.']])
-    state.select(0, 0)
+    state.select(BoardPosition(0, 0))
     _handler().execute(parse_click(["click", "50", "50"]), state)
     assert state.selection is None
 
 
 def test_click_friendly_replaces_selection():
     state = _state([['wK', 'wR']])
-    state.select(0, 0)
+    state.select(BoardPosition(0, 0))
     _handler().execute(parse_click(["click", "150", "50"]), state)
-    assert state.selection == (0, 1)
+    assert state.selection == BoardPosition(0, 1)
 
 
-def test_click_cooled_down_piece_is_not_selectable():
-    state = _state([['wK', '.']])
-    state.cooldowns[(0, 0)] = 9999
-    _handler().execute(parse_click(["click", "50", "50"]), state)
-    assert state.selection is None
+
 
 
 # ---------------------------------------------------------------------------
-# handle_click — move and capture
+# handle_click — move scheduling (moves are now deferred, not instant)
 # ---------------------------------------------------------------------------
 
-def test_move_to_empty_cell():
+def test_move_to_empty_cell_schedules_in_flight():
+    # Arrange
     state = _state([['wK', '.']])
-    state.select(0, 0)
+    state.select(BoardPosition(0, 0))
+    # Act
     _handler().execute(parse_click(["click", "150", "50"]), state)
-    assert state.board.get_token(0, 0) == '.'
-    assert state.board.get_token(0, 1) == 'wK'
+    # Assert — piece in-flight: board unchanged, selection cleared
+    assert state.board.get_token(0, 0) == 'wK'
+    assert state.board.get_token(0, 1) == '.'
     assert state.selection is None
+    assert state.is_in_flight(BoardPosition(0, 0))
 
 
-def test_move_captures_enemy():
+# ---------------------------------------------------------------------------
+# Flight interception guard
+# ---------------------------------------------------------------------------
+
+def test_redirecting_in_flight_piece_is_ignored():
+    # Arrange — schedule a move for the King
+    state = _state([['wK', '.', '.']])
+    state.select(BoardPosition(0, 0))
+    _handler().execute(parse_click(["click", "150", "50"]), state)
+    original_entry = state.in_flight[(0, 0)]
+    # Act — try to redirect the same King while it's still in-flight
+    state.select(BoardPosition(0, 0))
+    _handler().execute(parse_click(["click", "250", "50"]), state)
+    # Assert — original in-flight entry is unchanged
+    assert state.in_flight[(0, 0)] == original_entry
+
+
+def test_move_captures_enemy_after_arrival():
+    # Arrange
     state = _state([['wK', 'bQ']])
-    state.select(0, 0)
+    state.select(BoardPosition(0, 0))
     _handler().execute(parse_click(["click", "150", "50"]), state)
+    # Act — advance clock to trigger arrival (1-cell move)
+    handle_wait(WaitCommand(ms=1 * TIME_PER_CELL_MS), state)
+    # Assert — piece landed, enemy captured
     assert state.board.get_token(0, 1) == 'wK'
     assert state.board.get_token(0, 0) == '.'
+
+
+# ---------------------------------------------------------------------------
+# Real-time movement: in-flight visibility and arrival via wait
+# ---------------------------------------------------------------------------
+
+def test_move_is_in_flight_before_arrival(capsys):
+    # Arrange — schedule a move
+    state = _state([['wK', '.']])
+    state.select(BoardPosition(0, 0))
+    _handler().execute(parse_click(["click", "150", "50"]), state)
+    # Act — print board before any wait
+    handle_print_board(PrintBoardCommand(), state)
+    # Assert — piece still at origin
+    assert capsys.readouterr().out.split()[0] == 'wK'
+
+
+def test_move_arrives_after_wait(capsys):
+    # Arrange — schedule a move
+    state = _state([['wK', '.']])
+    state.select(BoardPosition(0, 0))
+    _handler().execute(parse_click(["click", "150", "50"]), state)
+    # Act — advance clock past arrival (1-cell move), then print
+    handle_wait(WaitCommand(ms=1 * TIME_PER_CELL_MS), state)
+    handle_print_board(PrintBoardCommand(), state)
+    # Assert — piece at destination
+    tokens = capsys.readouterr().out.split()
+    assert tokens == ['.', 'wK']
