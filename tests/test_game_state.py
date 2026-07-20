@@ -289,6 +289,83 @@ def test_air_capture_same_ms_as_jump_start():
     assert state.is_airborne(BoardPosition(0, 0)) is False  # ended by capture
 
 
+def test_air_capture_skipped_when_origin_token_missing():
+    # Edge: origin cell is empty by the time apply_arrivals runs → _try_air_capture returns False
+    # and _land_piece handles the empty move (no crash, no air capture).
+    state = _state([['wK', 'bR']])
+    state.schedule_jump(0, 0)                                              # wK airborne at (0,0)
+    state.schedule_move(MoveContext('R', 'b', 0, 1, 0, 0, state.board))   # bR → (0,0)
+    # Manually clear the origin so arriving_token == '.'
+    state.board.set_token(0, 1, '.')
+    state.clock_ms = TIME_PER_CELL_MS
+    state.apply_arrivals()   # _try_air_capture sees '.' at origin → returns False
+    # No air capture; _land_piece runs; wK still on board (not captured)
+    assert state.board.get_token(0, 0) == 'wK'
+
+
+def test_cancel_blocked_removes_in_flight_piece_when_path_obstructed():
+    # wR at (0,0) heading to (0,2); wN placed at (0,1) blocks the path mid-flight.
+    state = _state([['wR', '.', '.']])
+    state.schedule_move(MoveContext('R', 'w', 0, 0, 0, 2, state.board))
+    assert state.is_in_flight(BoardPosition(0, 0))
+    # Obstruct the path before arrival
+    state.board.set_token(0, 1, 'wN')
+    state._cancel_blocked()
+    assert not state.is_in_flight(BoardPosition(0, 0))
+
+
+def test_cancel_captured_at_destination_removes_pieces_heading_there():
+    # wR at (0,0) and wQ at (0,2) both heading to (0,1).
+    # A third piece lands on (0,1) first; both in-flight pieces must be cancelled.
+    state = _state([['wR', '.', 'wQ']])
+    state.schedule_move(MoveContext('R', 'w', 0, 0, 0, 1, state.board))
+    state.schedule_move(MoveContext('Q', 'w', 0, 2, 0, 1, state.board))
+    dest = BoardPosition(0, 1)
+    state._cancel_captured_at_destination(dest)
+    assert BoardPosition(0, 0) not in state.in_flight
+    assert BoardPosition(0, 2) not in state.in_flight
+
+
+def test_cancel_blocked_triggered_via_apply_arrivals():
+    # wR at (0,0) heading to (0,2); wN arrives at (0,1) at the same tick,
+    # blocking wR's path — _land_piece calls _cancel_blocked (step D).
+    state = _state([['wR', 'wN', '.', '.']])
+    state.schedule_move(MoveContext('R', 'w', 0, 0, 0, 3, state.board))  # arrival_ms = 3000
+    state.schedule_move(MoveContext('N', 'w', 0, 1, 0, 2, state.board))  # arrival_ms = 1000
+    state.clock_ms = TIME_PER_CELL_MS  # only wN due
+    state.apply_arrivals()             # wN lands at (0,2), blocking wR's path
+    state.clock_ms = 3 * TIME_PER_CELL_MS
+    state.apply_arrivals()             # _cancel_blocked fires; wR never arrives
+    assert state.board.get_token(0, 0) == 'wR'
+    assert not state.is_in_flight(BoardPosition(0, 0))
+
+
+def test_cancel_captured_at_destination_triggered_via_apply_arrivals():
+    # bQ at (0,2) and wR at (0,0) both head to (0,1).
+    # bQ arrives first (1 cell, ms=1000); _land_piece calls _cancel_captured_at_destination
+    # which removes wR's in-flight entry before wR's arrival_ms is due.
+    state = _state([['wR', '.', 'bQ']])
+    state.schedule_move(MoveContext('Q', 'b', 0, 2, 0, 1, state.board))  # arrival_ms = 1000
+    state.schedule_move(MoveContext('R', 'w', 0, 0, 0, 1, state.board))  # arrival_ms = 1000
+    # Advance only enough for bQ (sorted earliest-first; both equal — bQ cancels wR via step C)
+    state.clock_ms = TIME_PER_CELL_MS
+    state.apply_arrivals()
+    assert state.board.get_token(0, 1) == 'bQ'
+    assert not state.is_in_flight(BoardPosition(0, 0))
+
+
+def test_apply_arrivals_skips_cancelled_origin():
+    # Two pieces due at the same tick; the first arrival cancels the second via
+    # _cancel_captured_at_destination, exercising the `continue` guard in apply_arrivals.
+    state = _state([['wR', '.', 'bQ']])
+    state.schedule_move(MoveContext('Q', 'b', 0, 2, 0, 1, state.board))  # arrival_ms = 1000
+    state.schedule_move(MoveContext('R', 'w', 0, 0, 0, 1, state.board))  # arrival_ms = 1000
+    state.clock_ms = TIME_PER_CELL_MS
+    state.apply_arrivals()  # first arrival cancels second; `continue` branch fires for wR
+    assert state.board.get_token(0, 0) == 'wR'  # wR never moved
+    assert state.in_flight == {}
+
+
 def test_multiple_enemies_arrive_only_first_triggers_air_capture():
     # wK airborne at (0,0); two enemies scheduled to arrive at (0,0)
     # First arrival triggers air capture (jump ends); second arrival lands normally

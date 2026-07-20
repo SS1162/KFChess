@@ -15,6 +15,11 @@ def test_empty_grid_raises():
         BoardValidator.validate([])
 
 
+def test_empty_first_row_raises():
+    with pytest.raises(EmptyBoardError):
+        BoardValidator.validate([[]])
+
+
 def test_ragged_rows_raises():
     with pytest.raises(InvalidDimensionsError) as exc_info:
         BoardValidator.validate([['wK', '.', '.'], ['.', 'bK']])

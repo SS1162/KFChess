@@ -256,6 +256,16 @@ def test_jump_expires_after_wait():
     assert state.is_airborne(BoardPosition(0, 0)) is False
 
 
+def test_double_click_on_empty_cell_guard():
+    # With a selection active, clicking an empty cell that equals the selection
+    # position hits the _handle_double_click guard (token == '.') and just deselects.
+    state = _state([['.']])
+    state.select(BoardPosition(0, 0))   # force a selection on an empty cell
+    _handler().execute(parse_click(["click", "50", "50"]), state)
+    assert state.selection is None
+    assert state.airborne == {}
+
+
 def test_jump_ignored_after_game_over():
     state = _state([['wR', 'bK', '.']])
     mv = MoveValidator()

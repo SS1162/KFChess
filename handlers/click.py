@@ -31,7 +31,8 @@ class ClickCommandHandler:
         self._move_validator = move_validator
 
     def execute(self, cmd: ClickCommand, state: GameState) -> None:
-        pos = pixel_to_board(cmd.p.x, cmd.p.y, CELL_SIZE, state.board.rows, state.board.cols)
+        cs = cmd.cell_size if cmd.cell_size > 0 else CELL_SIZE
+        pos = pixel_to_board(cmd.p.x, cmd.p.y, cs, state.board.rows, state.board.cols)
         if pos is None:
             logger.warning("Click (%d, %d) is out of bounds — ignored.", cmd.p.x, cmd.p.y)
             return
