@@ -1,8 +1,8 @@
+from engine_factory import build_command_parser, build_executor
 from game_state import GameState
-from main import _build_command_parser, _build_executor
 
-_cmd_parser = _build_command_parser()
-_executor = _build_executor()
+_cmd_parser = build_command_parser()
+_executor = build_executor()
 
 
 def run_single_command(state: GameState, raw_command: str) -> GameState:
