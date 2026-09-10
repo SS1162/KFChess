@@ -1,56 +1,47 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+_VALID_BOARD = "Board:\nwK bK\nCommands:\n"
+_INVALID_TOKEN_BOARD = "Board:\nwK xZ\nCommands:\n"
 
 
 # --- _load_game_session ---
 
-def _mock_parse_result():
-    return ([["wK", "bK"]], None)
-
-
-@patch("server.sys.argv", ["server.py"])
-@patch("server.BoardValidator.validate")
-@patch("server.TextBoardParser")
-def test_load_game_session_default_file(mock_parser_cls, mock_validate):
-    mock_parser_cls.return_value.parse.return_value = _mock_parse_result()
-    with patch("builtins.open", mock_open(read_data="")):
-        from server import _load_game_session
-        session = _load_game_session()
+def test_load_game_session_default_file(tmp_path, monkeypatch):
+    board_file = tmp_path / "board.txt"
+    board_file.write_text(_VALID_BOARD)
+    monkeypatch.setattr("sys.argv", ["server.py", str(board_file)])
+    from server import _load_game_session
+    session = _load_game_session()
     assert session is not None
-    mock_validate.assert_called_once()
 
 
-@patch("server.sys.argv", ["server.py", "custom.txt"])
-@patch("server.BoardValidator.validate")
-@patch("server.TextBoardParser")
-def test_load_game_session_custom_file(mock_parser_cls, mock_validate):
-    mock_parser_cls.return_value.parse.return_value = _mock_parse_result()
-    with patch("builtins.open", mock_open(read_data="")) as m:
+def test_load_game_session_custom_file(tmp_path, monkeypatch):
+    board_file = tmp_path / "custom.txt"
+    board_file.write_text(_VALID_BOARD)
+    monkeypatch.setattr("sys.argv", ["server.py", str(board_file)])
+    from server import _load_game_session
+    session = _load_game_session()
+    assert session.board.get_token(0, 0) == "wK"
+
+
+def test_load_game_session_missing_file_exits(tmp_path, monkeypatch):
+    monkeypatch.setattr("sys.argv", ["server.py", str(tmp_path / "nonexistent.txt")])
+    with pytest.raises(SystemExit) as exc_info:
         from server import _load_game_session
         _load_game_session()
-    m.assert_called_once_with("custom.txt")
+    assert exc_info.value.code == 1
 
 
-@patch("server.sys.argv", ["server.py"])
-@patch("server.sys.exit")
-def test_load_game_session_missing_file_exits(mock_exit):
-    with patch("builtins.open", side_effect=OSError("not found")):
+def test_load_game_session_invalid_board_exits(tmp_path, monkeypatch):
+    board_file = tmp_path / "bad.txt"
+    board_file.write_text(_INVALID_TOKEN_BOARD)
+    monkeypatch.setattr("sys.argv", ["server.py", str(board_file)])
+    with pytest.raises(SystemExit) as exc_info:
         from server import _load_game_session
         _load_game_session()
-    mock_exit.assert_called_once_with(1)
-
-
-@patch("server.sys.argv", ["server.py"])
-@patch("server.sys.exit")
-@patch("server.TextBoardParser")
-def test_load_game_session_invalid_board_exits(mock_parser_cls, mock_exit):
-    from exceptions import BoardError
-    mock_parser_cls.return_value.parse.return_value = _mock_parse_result()
-    with patch("builtins.open", mock_open(read_data="")):
-        with patch("server.BoardValidator.validate", side_effect=BoardError("bad")):
-            from server import _load_game_session
-            _load_game_session()
-    mock_exit.assert_called_once_with(1)
+    assert exc_info.value.code == 1
 
 
 # --- handler ---
@@ -61,25 +52,29 @@ async def test_handler_registers_and_unregisters():
     ws.__aiter__ = MagicMock(return_value=iter([]))
     cm = AsyncMock()
     gs = MagicMock()
+    pr = MagicMock()
 
     from server import handler
-    await handler(ws, connection_manager=cm, game_session=gs)
+    await handler(ws, connection_manager=cm, game_session=gs, player_registry=pr)
 
     cm.register.assert_awaited_once_with(ws)
     cm.unregister.assert_awaited_once_with(ws)
+    pr.unregister.assert_called_once_with(ws)
 
 
 @pytest.mark.asyncio
 async def test_handler_broadcasts_command_result():
+    import json
     ws = AsyncMock()
-    ws.__aiter__ = MagicMock(return_value=iter(["wait 100"]))
+    ws.__aiter__ = MagicMock(return_value=iter([json.dumps({"type": "command", "raw": "wait 100"})]))
     cm = AsyncMock()
     gs = MagicMock(apply_command=MagicMock(return_value={"type": "state"}))
+    pr = MagicMock()
 
     from server import handler
-    await handler(ws, connection_manager=cm, game_session=gs)
+    await handler(ws, connection_manager=cm, game_session=gs, player_registry=pr)
 
-    gs.apply_command.assert_called_once_with("wait 100")
+    gs.apply_command.assert_called_once_with({"type": "command", "raw": "wait 100"})
     cm.broadcast.assert_awaited_once_with({"type": "state"})
 
 
@@ -94,9 +89,11 @@ async def test_handler_unregisters_on_exception():
     ws.__aiter__ = MagicMock(return_value=_raise())
     cm = AsyncMock()
     gs = MagicMock()
+    pr = MagicMock()
 
     from server import handler
     with pytest.raises(RuntimeError):
-        await handler(ws, connection_manager=cm, game_session=gs)
+        await handler(ws, connection_manager=cm, game_session=gs, player_registry=pr)
 
     cm.unregister.assert_awaited_once_with(ws)
+    pr.unregister.assert_called_once_with(ws)

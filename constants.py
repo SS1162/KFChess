@@ -11,3 +11,7 @@ PAWN_DOUBLE_STEP_ROWS = 2  # rows from the edge that qualify as the pawn's start
 PAWN_PROMOTION_PIECE  = 'Q' # piece a pawn becomes upon reaching the last row
 
 JUMP_DURATION_MS = 1000  # milliseconds a piece stays airborne after a jump
+
+WHITE = "white"
+BLACK = "black"
+VALID_COLORS = (WHITE, BLACK)

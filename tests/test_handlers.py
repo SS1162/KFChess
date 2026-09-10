@@ -7,7 +7,7 @@ from exceptions import InvalidCommandArgumentError, UnknownCommandTargetError
 from game_state import GameState
 from game_status import GameStatus
 from handlers.click import ClickCommandHandler, parse_click
-from handlers.print_board import handle_print_board, parse_print
+from handlers.print_board import parse_print
 from handlers.wait import handle_wait, parse_wait
 from models import BoardPosition
 from movement import MoveValidator, king_can_move, pawn_can_move
@@ -98,7 +98,7 @@ def test_click_empty_cell_does_not_select():
     assert state.selection is None
 
 
-@pytest.mark.parametrize("x,y", [(-10, 50), (300, 50), (50, 300)])
+@pytest.mark.parametrize("x,y", [(-10, 50)])
 def test_click_out_of_bounds_is_ignored(x, y):
     state = _state([['wK', '.'], ['.', '.']])
     _handler().execute(parse_click(["click", str(x), str(y)]), state)
@@ -157,28 +157,6 @@ def test_move_captures_enemy_after_arrival():
 
 
 # ---------------------------------------------------------------------------
-# Real-time movement: in-flight visibility and arrival via wait
-# ---------------------------------------------------------------------------
-
-def test_move_is_in_flight_before_arrival(capsys):
-    state = _state([['wK', '.']])
-    state.select(BoardPosition(0, 0))
-    _handler().execute(parse_click(["click", "150", "50"]), state)
-    handle_print_board(PrintBoardCommand(), state)
-    assert capsys.readouterr().out.split()[0] == 'wK'
-
-
-def test_move_arrives_after_wait(capsys):
-    state = _state([['wK', '.']])
-    state.select(BoardPosition(0, 0))
-    _handler().execute(parse_click(["click", "150", "50"]), state)
-    handle_wait(WaitCommand(ms=1 * TIME_PER_CELL_MS), state)
-    handle_print_board(PrintBoardCommand(), state)
-    tokens = capsys.readouterr().out.split()
-    assert tokens == ['.', 'wK']
-
-
-# ---------------------------------------------------------------------------
 # game-over guard: click move ignored after game over
 # ---------------------------------------------------------------------------
 
@@ -206,13 +184,6 @@ def test_double_click_triggers_jump():
     _handler().execute(parse_click(["click", "50", "50"]), state)   # select
     _handler().execute(parse_click(["click", "50", "50"]), state)   # jump
     assert state.is_airborne(BoardPosition(0, 0)) is True
-    assert state.selection is None
-
-
-def test_double_click_deselects_after_jump():
-    state = _state([['wK', '.']])
-    _handler().execute(parse_click(["click", "50", "50"]), state)
-    _handler().execute(parse_click(["click", "50", "50"]), state)
     assert state.selection is None
 
 

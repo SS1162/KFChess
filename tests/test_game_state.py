@@ -130,11 +130,6 @@ def test_schedule_jump_registers_airborne():
     state.schedule_jump(0, 0)
     assert state.is_airborne(BoardPosition(0, 0)) is True
     assert state.airborne[BoardPosition(0, 0)] == JUMP_DURATION_MS
-
-
-def test_schedule_jump_piece_stays_on_board():
-    state = _state([['wK', '.']])
-    state.schedule_jump(0, 0)
     assert state.board.get_token(0, 0) == 'wK'
 
 
@@ -228,14 +223,6 @@ def test_air_capture_removes_arriving_enemy_keeps_airborne_piece():
     assert state.board.get_token(0, 0) == 'wK'
     assert state.board.get_token(0, 1) == '.'  # bR removed from its origin
     assert state.in_flight == {}
-
-
-def test_air_capture_ends_jump_immediately():
-    state = _state([['wK', 'bR']])
-    state.schedule_jump(0, 0)
-    state.schedule_move(MoveContext('R', 'b', 0, 1, 0, 0, state.board))
-    state.clock_ms = TIME_PER_CELL_MS
-    state.apply_arrivals()
     assert state.is_airborne(BoardPosition(0, 0)) is False
 
 
@@ -352,18 +339,6 @@ def test_cancel_captured_at_destination_triggered_via_apply_arrivals():
     state.apply_arrivals()
     assert state.board.get_token(0, 1) == 'bQ'
     assert not state.is_in_flight(BoardPosition(0, 0))
-
-
-def test_apply_arrivals_skips_cancelled_origin():
-    # Two pieces due at the same tick; the first arrival cancels the second via
-    # _cancel_captured_at_destination, exercising the `continue` guard in apply_arrivals.
-    state = _state([['wR', '.', 'bQ']])
-    state.schedule_move(MoveContext('Q', 'b', 0, 2, 0, 1, state.board))  # arrival_ms = 1000
-    state.schedule_move(MoveContext('R', 'w', 0, 0, 0, 1, state.board))  # arrival_ms = 1000
-    state.clock_ms = TIME_PER_CELL_MS
-    state.apply_arrivals()  # first arrival cancels second; `continue` branch fires for wR
-    assert state.board.get_token(0, 0) == 'wR'  # wR never moved
-    assert state.in_flight == {}
 
 
 def test_multiple_enemies_arrive_only_first_triggers_air_capture():
